@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { supabase } from './supabase';
 
 /* ═══════════════════════════════════════════════════════
    BRAND & THEME
@@ -815,7 +816,44 @@ function HomePage({setPage,setSelectedJob}){
   const [search,setSearch]=useState("");
   const [filter,setFilter]=useState("All");
   const [eduFilter,setEduFilter]=useState("All");
-  const filtered=JOBS.filter(j=>{
+  const [liveJobs, setLiveJobs] = useState(JOBS);
+  useEffect(() => {
+    async function fetchLiveJobs() {
+      const { data, error } = await supabase
+        .from('updates')
+        .select('*')
+        .eq('category', 'job')
+        .order('created_at', { ascending: false });
+
+      if (data && data.length > 0) {
+        const formattedJobs = data.map(db => ({
+          id: db.id,
+          title: db.title_en,
+          telugu: db.title_te || "తాజా నోటిఫికేషన్",
+          org: db.organization || "Govt Board",
+          state: "All India",
+          cat: db.sub_category || "Central Govt",
+          type: "Govt",
+          edu: db.qualification || "Any Degree",
+          posts: parseInt(db.vacancies) || 100,
+          qual: db.qualification || "Any Degree",
+          age: "18–44",
+          salary: db.salary || "As per notification",
+          lastDate: db.last_date || "Coming Soon",
+          daysLeft: 15,
+          diff: 60,
+          color: "#1a6b3c",
+          hot: db.is_hot || false,
+          free: true,
+          tag: "New Alert"
+        }));
+        setLiveJobs([...formattedJobs, ...JOBS]);
+      }
+    }
+    fetchLiveJobs();
+  }, []);
+
+  const filtered=liveJobs.filter(j=>{
     const q=search.toLowerCase();
     const matchQ=!q||j.title.toLowerCase().includes(q)||j.org.toLowerCase().includes(q);
     const matchF=filter==="All"||j.cat===filter||j.type===filter;
