@@ -7,24 +7,24 @@ export default async function handler(req, res) {
     const geminiKey = process.env.GEMINI_API_KEY;
 
     if (!supabaseUrl || !supabaseKey) {
-      return res.status(500).json({ error: "Missing Supabase Environment Variables in Vercel settings." });
+      return res.status(500).json({ error: "Missing Supabase Environment Variables." });
     }
     if (!geminiKey) {
-      return res.status(500).json({ error: "Missing GEMINI_API_KEY in Vercel settings." });
+      return res.status(500).json({ error: "Missing GEMINI_API_KEY." });
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Prompt Gemini to generate structured, realistic notifications
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
+    // Using gemini-3.6-flash
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${geminiKey}`;
     
     const prompt = `Generate 5 latest Indian government job notifications (Central/State/Telangana/Andhra Pradesh) in a strict JSON array format.
-Each object MUST have:
+Each object MUST include:
 - title_en (string): Job title in English
-- title_te (string): Job title translated to Telugu
+- title_te (string): Job title in Telugu
 - organization (string): Organization name (e.g. TSPSC, SSC, RRB, UPSC, SBI)
-- vacancies (string): Total number of vacancies
-- qualification (string): Required qualification (e.g. Any Degree, 10th Pass, B.Tech)
+- vacancies (string): Number of vacancies
+- qualification (string): Required qualification
 - salary (string): Salary range
 - last_date (string): Application deadline
 - sub_category (string): 'Central Govt', 'State PSC', 'Banking', or 'Railway'
@@ -47,7 +47,6 @@ Each object MUST have:
     const rawText = aiData.candidates?.[0]?.content?.parts?.[0]?.text;
     const parsedUpdates = JSON.parse(rawText || "[]");
 
-    // Insert into Supabase
     for (const item of parsedUpdates) {
       await supabase.from('updates').insert([
         {
@@ -65,9 +64,8 @@ Each object MUST have:
       ]);
     }
 
-    return res.status(200).json({ success: true, inserted: parsedUpdates.length, updates: parsedUpdates });
+    return res.status(200).json({ success: true, count: parsedUpdates.length, updates: parsedUpdates });
   } catch (err) {
-    console.error("Cron Error:", err);
     return res.status(500).json({ error: err.message || "Internal server error" });
   }
 }
