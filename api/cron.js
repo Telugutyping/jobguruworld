@@ -1,72 +1,73 @@
-import { createClient } from '@supabase/supabase-js';
-import { GoogleGenAI } from '@google/genai';
-import * as cheerio from 'cheerio';
-
-const supabase = createClient(
-  process.env.VITE_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+ import { createClient } from '@supabase/supabase-js';
 
 export default async function handler(req, res) {
   try {
-    // 1. Fetch raw text from education news source
-    const targetUrl = 'https://education.sakshi.com/en';
-    const response = await fetch(targetUrl);
-    const html = await response.text();
-    const $ = cheerio.load(html);
-    const rawText = $('body').text().slice(0, 15000);
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.REACT_APP_SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.REACT_APP_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+    const geminiKey = process.env.GEMINI_API_KEY;
 
-    // 2. Instruct Gemini to categorize all sections
-    const prompt = `
-      You are an expert education editor and career advisor.
-      Analyze the raw educational news text below.
-      Extract fresh items for: Jobs, Admit Cards, Results, and Daily Current Affairs.
-      
-      Return ONLY a JSON array of objects with this structure:
-      [
-        {
-          "category": "job" | "admit_card" | "result" | "answer_key" | "current_affairs",
-          "sub_category": "TSPSC" | "APPSC" | "SSC" | "Banking" | "Railway" | "Police" | "Teaching" | "General",
-          "title_en": "English title",
-          "title_te": "Telugu title",
-          "organization": "Organization name",
-          "vacancies": "Count or N/A",
-          "qualification": "Eligibility or N/A",
-          "salary": "Pay scale in INR or N/A",
-          "last_date": "Last date / Exam date",
-          "details_json": {
-            "syllabus": "Key topics",
-            "preparation_strategy": "Step-by-step strategy",
-            "summary": "Brief explanation"
-          },
-          "apply_url": "Direct link or official portal",
-          "is_hot": true
-        }
-      ]
+    if (!supabaseUrl || !supabaseKey) {
+      return res.status(500).json({ error: "Missing Supabase Environment Variables in Vercel settings." });
+    }
+    if (!geminiKey) {
+      return res.status(500).json({ error: "Missing GEMINI_API_KEY in Vercel settings." });
+    }
 
-      Raw Text: ${rawText}
-    `;
+    const supabase = createClient(supabaseUrl, supabaseKey);
 
-    const aiResponse = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
+    // Prompt Gemini to generate structured, realistic notifications
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
+    
+    const prompt = `Generate 5 latest Indian government job notifications (Central/State/Telangana/Andhra Pradesh) in a strict JSON array format.
+Each object MUST have:
+- title_en (string): Job title in English
+- title_te (string): Job title translated to Telugu
+- organization (string): Organization name (e.g. TSPSC, SSC, RRB, UPSC, SBI)
+- vacancies (string): Total number of vacancies
+- qualification (string): Required qualification (e.g. Any Degree, 10th Pass, B.Tech)
+- salary (string): Salary range
+- last_date (string): Application deadline
+- sub_category (string): 'Central Govt', 'State PSC', 'Banking', or 'Railway'
+- is_hot (boolean): true or false`;
+
+    const aiRes = await fetch(geminiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { responseMimeType: "application/json" }
+      })
     });
 
-    const cleanedText = aiResponse.text.replace(/```json|```/g, '').trim();
-    const items = JSON.parse(cleanedText);
+    const aiData = await aiRes.json();
+    if (!aiRes.ok) {
+      return res.status(500).json({ error: "Gemini API Request Failed", details: aiData });
+    }
 
-    // 3. Insert items into Supabase
-    const { error: dbError } = await supabase
-      .from('updates')
-      .insert(items);
+    const rawText = aiData.candidates?.[0]?.content?.parts?.[0]?.text;
+    const parsedUpdates = JSON.parse(rawText || "[]");
 
-    if (dbError) throw dbError;
+    // Insert into Supabase
+    for (const item of parsedUpdates) {
+      await supabase.from('updates').insert([
+        {
+          category: 'job',
+          sub_category: item.sub_category || 'Central Govt',
+          title_en: item.title_en || 'Latest Job Notification',
+          title_te: item.title_te || 'తాజా ఉద్యోగ నోటిఫికేషన్',
+          organization: item.organization || 'Govt Board',
+          vacancies: String(item.vacancies || '100'),
+          qualification: item.qualification || 'Any Degree',
+          salary: item.salary || 'As per notification',
+          last_date: item.last_date || 'Coming Soon',
+          is_hot: Boolean(item.is_hot)
+        }
+      ]);
+    }
 
-    return res.status(200).json({ success: true, count: items.length });
-  } catch (error) {
-    console.error('Automation error:', error);
-    return res.status(500).json({ error: error.message });
+    return res.status(200).json({ success: true, inserted: parsedUpdates.length, updates: parsedUpdates });
+  } catch (err) {
+    console.error("Cron Error:", err);
+    return res.status(500).json({ error: err.message || "Internal server error" });
   }
 }
