@@ -3,7 +3,6 @@
   "version": "1.0.0",
   "private": true,
   "dependencies": {
-    "@google/genai": "^0.1.1",
     "@supabase/supabase-js": "^2.48.0",
     "cheerio": "^1.0.0",
     "react": "^18.2.0",
@@ -21,7 +20,9 @@
       "not op_mini all"
     ],
     "development": [
-      "last 1 chrome version"
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
     ]
   }
 }
